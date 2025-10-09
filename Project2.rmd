@@ -1,0 +1,183 @@
+---
+title: "Mini Project 1"
+author: "Jackson Passey, Gavin Hatch, Ty Hawkes"
+date: "`r Sys.Date()`"
+output: pdf_document
+fontsize: 11pt
+geometry: margin=1in
+header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+---
+```{r, include = FALSE}
+# Libraries
+library(tidyverse)
+library(naniar)
+library(ICSNP)
+library(mice)
+
+# Data
+oliver2a <- read.table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a", header = TRUE)
+oliver4a <- read.table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a", header = TRUE)
+```
+# Introduction
+words
+
+# Data Preparation
+words
+```{r, echo = FALSE}
+# EM + Multiple Imputation assuming normality and MAR
+# **THIS IS A PLACEHOLDER AND IS USING A DIFFERENT IMPUTATION METHOD**
+impute_data <- function(data, m = 10, method = "norm", maxit = 50, seed = 500) {
+  imputed <- mice(data, m = m, method = method, maxit = maxit, seed = seed, printFlag = FALSE)
+  complete(imputed, "all") 
+}
+
+oliver2a_imputed <- impute_data(oliver2a)
+oliver4a_imputed <- impute_data(oliver4a)
+```
+
+# Assessment of Missing at Random (MAR) Assumption
+words
+```{r, echo = FALSE}
+pairwise_missing_fisher_p_values <- function(data) {
+  predictor_levels <- colnames(data)
+  results <- data.frame(dep = character(),
+                        predictor = character(),
+                        p_value = numeric(),
+                        stringsAsFactors = FALSE)
+  
+  for (dep in predictor_levels) {
+    miss_dep <- as.numeric(is.na(data[[dep]]))  # response: missing = 1
+    
+    for (pred in setdiff(predictor_levels, dep)) {
+      miss_pred <- as.numeric(is.na(data[[pred]]))  # predictor: missing = 1
+      tbl <- table(miss_dep, miss_pred)
+      
+      if (all(dim(tbl) == 2)) {
+        p <- fisher.test(tbl)$p.value  # Fisher's Exact Test
+        results <- rbind(results, data.frame(dep = dep, predictor = pred, p_value = p))
+      }
+    }
+  }
+  
+  p_matrix <- results %>%
+    pivot_wider(names_from = predictor, values_from = p_value) %>%
+    as.data.frame()
+  
+  rownames(p_matrix) <- p_matrix$dep
+  p_matrix$dep <- NULL
+  p_matrix <- as.matrix(p_matrix)
+  p_matrix <- p_matrix[, c(ncol(p_matrix), 1:(ncol(p_matrix)-1))]
+  
+  return(round(p_matrix, 4))
+}
+
+vis_miss(oliver2a)
+pairwise_missing_fisher_p_values(oliver2a)
+
+vis_miss(oliver4a)
+pairwise_missing_fisher_p_values(oliver4a)
+```
+
+# Analysis for Region 2
+words
+
+```{r, echo = FALSE}
+hotellings_with_imputed_datasets <- function(imputed_datasets, mu_not){
+  M <- length(imputed_datasets)     
+  p <- ncol(imputed_datasets[[1]]) 
+  n <- nrow(imputed_datasets[[1]])  
+  
+  # mean vector for each imputed dataset
+  theta_m <- sapply(imputed_datasets, colMeans) 
+  
+  # within-imputation covariance matrices
+  U_m <- lapply(imputed_datasets, function(d) cov(d)/n)
+  
+  # average within-imputation covariance
+  U_bar <- Reduce("+", U_m)/M
+  
+  # between-imputation covariance
+  theta_bar <- rowMeans(theta_m) 
+  B <- matrix(0, nrow = p, ncol = p)
+  for (m in 1:M) {
+    diff <- theta_m[, m] - theta_bar
+    B <- B + diff %*% t(diff)
+  }
+  B <- B / (M - 1)
+  
+  # total covariance (Rubin's rules)
+  T <- U_bar + (1 + 1/M) * B
+
+  # Adjusted df for f distribution
+  r <- (1 + 1/M) * sum(diag(B %*% solve(U_bar)))
+  nu <- (M - 1) * (1 + 1/r)^2
+  
+  # Hotelling's T^2 statistic
+  diff_mu <- theta_bar - mu_not
+  T2 <- n * t(diff_mu) %*% solve(T) %*% diff_mu
+  F_stat <- as.numeric((n - p)/(p * (n - 1)) * T2)
+  p_value <- 1 - pf(F_stat, p, nu)
+  
+  return(list(
+    mean = theta_bar,
+    total_variance = T,
+    T2 = as.numeric(T2),
+    F_stat = F_stat,
+    p_value = p_value
+  ))
+}
+
+mu2a_not <- c(1300, 120, 265, 7310, 820, 45, 65, 28)
+hotellings_with_imputed_datasets(oliver2a_imputed, mu2a_not)
+```
+
+# Analysis for Region 4
+words
+
+```{r, echo = FALSE}
+mu4a_not <- c(1230, 105, 275, 7360, 830, 41, 75, 38)
+hotellings_with_imputed_datasets(oliver4a_imputed, mu4a_not)
+```
+
+# Comparison between Regions 2 and 4
+words
+
+# Assessment of Linoleic and Linolenic Acids
+words
+
+# Conclusions and Recommendations
+words
+
+# Appendix
+words
+
+```{r, echo = FALSE}
+mvqqplot <- function(data, name) {
+  data <- as.matrix(data)
+  data <- na.omit(data)
+  n <- nrow(data)
+  p <- ncol(data)
+  
+  mu <- colMeans(data)
+  S <- cov(data)
+  
+  centered_data <- sweep(data, 2, mu)
+  mahalanobis_distances <- rowSums((centered_data %*% solve(S)) * centered_data)
+  
+  chi_sq_quantiles <- qchisq((1:n) / (n + 1), df = p)
+  
+  sorted_distances <- sort(mahalanobis_distances)
+  
+  plot(chi_sq_quantiles, sorted_distances,
+       main = paste("MVN Q-Q Plot", name),
+       xlab = "Theoretical Quantiles",
+       ylab = "Sample Quantiles")
+  
+  abline(0, 1, col = "red", lty = 2)
+}
+par(mfrow = c(1, 2))
+mvqqplot(oliver2a, name = "2a")
+mvqqplot(oliver4a, name = "4a")
+```
