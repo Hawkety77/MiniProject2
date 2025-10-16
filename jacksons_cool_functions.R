@@ -144,3 +144,29 @@ run_mvi <- function(em, num_sets = 10) {
 
 }
 
+## Computing F-Statistic ##
+
+find_t <- function(p, v_h) {
+  t =  sqrt((p^2 * v_h^2 - 4) / (p^2 + v_h^2 - 5))
+  return(t)
+}
+
+wilk_to_f <- function(Lambda, t, df1, df2) {
+  F_stat <- ((1-Lambda^(1/t)) / Lambda^(1/t)) * (df2/df1)
+  return(F_stat)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

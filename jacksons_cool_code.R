@@ -2,7 +2,12 @@
 o2 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a")
 o4 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a")
 
+# if you want to skip this whole exploration and want to get a dataframe for o2 and o4
 set.seed(39)
+
+o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$df_mvi
+o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$df_mvi
+
 
 ### EM Algorithm ###
 num_steps = 50
@@ -47,10 +52,6 @@ final_o2 <- mvi_o2$df_mvi
 # if you want to change the final dataframe to any of the other 'num_sets', try this:
 final_o2[em$which_na] <- unlist(mvi_o2$df_dist['set1'])
 
-# if you want to skip this whole exploration and want to get a dataframe for o2 and o4
-
-o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$df_mvi
-o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$df_mvi
 
 ### Little's MCAR Test ###
 # another option to determining mcar vs mar/mnar

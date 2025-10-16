@@ -1,0 +1,83 @@
+---
+title: "Mini Project 2"
+author: "Jackson Passey, Gavin Hatch, Ty Hawkes"
+date: "`r Sys.Date()`"
+output: pdf_document
+fontsize: 11pt
+geometry: margin=1in
+header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+---
+
+\textbf{Initialization:} Start with initial estimates $\tilde{\boldsymbol \mu}$ and $\tilde{\Sigma}$.
+
+For each observation $i$, partition the vector
+\[
+\boldsymbol x_i = \begin{bmatrix} \boldsymbol x_i^{(1)} \\ \boldsymbol x_i^{(2)} \end{bmatrix},
+\]
+where $\boldsymbol x_i^{(1)}$ are the \textit{missing} components and $\boldsymbol x_i^{(2)}$ are the \textit{observed} components.
+
+Similarly, partition the mean vector and covariance matrix as
+\[
+\tilde{\boldsymbol \mu} = 
+\begin{bmatrix}
+\tilde{\boldsymbol \mu}^{(1)} \\
+\tilde{\boldsymbol \mu}^{(2)}
+\end{bmatrix},
+\quad
+\tilde{\boldsymbol \Sigma} = 
+\begin{bmatrix}
+\tilde{\boldsymbol \Sigma}_{11} & \tilde{\boldsymbol \Sigma}_{12} \\
+\tilde{\boldsymbol \Sigma}_{21} & \tilde{\boldsymbol \Sigma}_{22}
+\end{bmatrix}.
+\]
+
+\textbf{E-step (Expectation):}
+Compute the conditional expectation of the missing components:
+\[
+\tilde{\boldsymbol x}_i^{(1)} = \tilde{\boldsymbol \mu}^{(1)} + \textbf{B}_i \left( \boldsymbol x_i^{(2)} - \tilde{\boldsymbol \mu}^{(2)} \right),
+\]
+where
+\[
+\textbf{B}_i = \tilde{\boldsymbol \Sigma}_{12} \tilde{\boldsymbol \Sigma}_{22}^{-1}.
+\]
+
+
+\textbf{M-step (Maximization):}
+Update the mean and covariance estimates using the completed data $\tilde{\boldsymbol x}_i = [\, \tilde{\boldsymbol x}_i^{(1)},\, \boldsymbol x_i^{(2)}\,]$:
+\[
+\tilde{\boldsymbol \mu}^{(new)} = \frac{1}{n} \sum_{i=1}^{n} \tilde{\boldsymbol x}_i, \quad
+\tilde{\boldsymbol \Sigma}^{(new)} = \frac{1}{n} \sum_{i=1}^{n} (\tilde{\boldsymbol x}_i - \tilde{\boldsymbol \mu}^{(new)})(\tilde{\boldsymbol x}_i - \tilde{\boldsymbol \mu}^{(new)})^\prime.
+\]
+Repeat the E- and M-steps until convergence.
+
+
+\textbf{Imputation (after convergence):}
+Once convergence is reached, with final estimates $\boldsymbol \mu^\ast$ and $\boldsymbol \Sigma^\ast$, generate multiple imputations as:
+\[
+\boldsymbol x_{i,[m]}^{(1)} = \boldsymbol \mu^{\ast(1)} + \textbf{B}_i^{\ast} (\boldsymbol x_i^{(2)} - \boldsymbol \mu^{\ast(2)}) + \boldsymbol e_{i,[m]}^{(1)},
+\]
+where
+\[
+\textbf{B}_i^{\ast} = \boldsymbol \Sigma_{12}^\ast (\boldsymbol \Sigma_{22}^\ast)^{-1},
+\]
+and
+\[
+\boldsymbol e_{i,[m]}^{(1)} \sim \mathcal{N}_q \left( \boldsymbol 0, \; \boldsymbol \Sigma_{11}^\ast - \boldsymbol \Sigma_{12}^\ast (\boldsymbol \Sigma_{22}^\ast)^{-1} \boldsymbol \Sigma_{21}^\ast \right),
+\]
+with $q =$ number of missing components in observation $i$.
+
+\textbf{Conditional Wilk's $\Lambda$ Distribution}
+
+\[
+\Lambda_{z|y} = \frac{\Lambda_{yz}}{\Lambda_y} \sim \Lambda_{q, \nu_H, \nu_E - p}
+\]
+where $q=6$ for length of $y$ acids, and $p=2$ for length of $z$ acids. The Wilk's $\Lambda$ approximates to the following F distribution:
+
+\[
+F = \frac{1-\Lambda_{z|y}^{1/t}}{\Lambda_{z|y}^{1/t}} \frac{df_1}{df_2} \sim F_{df_1, df_2}
+\]
+
+Where $t = 1$, $df_1 = 2$, and $df_2 = 83$. 
+
