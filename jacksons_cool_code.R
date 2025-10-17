@@ -1,4 +1,4 @@
-
+library(tidyverse)
 o2 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a")
 o4 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a")
 

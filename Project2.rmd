@@ -19,12 +19,182 @@ library(mice)
 # Data
 oliver2a <- read.table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a", header = TRUE)
 oliver4a <- read.table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a", header = TRUE)
+
+# Jackson's Cool Functions
+
+### EM Algorithm ###
+
+run_em <- function(df, max_steps = 10, tol = 1e-4) {
+
+  df <- as.matrix(df)
+  n <- nrow(df)
+
+  # initial estimates
+  mu <- colMeans(df, na.rm = TRUE)
+  sigma <- cov(df, use = "pairwise.complete.obs")
+  param_diffs <- matrix(0, nrow = max_steps, ncol = 2)
+  colnames(param_diffs) <- c("mu", "sigma")
+  loglik_list <- numeric(max_steps)
+
+  for (step in 1:max_steps) {
+    df_filled <- df
+
+    # --- E-step: impute missing values ---
+    for (i in 1:n) {
+      obs_idx <- which(!is.na(df[i, ]))
+      mis_idx <- which(is.na(df[i, ]))
+      if (length(mis_idx) > 0) {
+        mu_obs <- mu[obs_idx]
+        mu_mis <- mu[mis_idx]
+
+        Sigma_oo <- sigma[obs_idx, obs_idx, drop = FALSE]
+        Sigma_mo <- sigma[mis_idx, obs_idx, drop = FALSE]
+
+        # regression coefficients
+        B <- Sigma_mo %*% solve(Sigma_oo)
+
+        x_obs <- df[i, obs_idx]
+        df_filled[i, mis_idx] <- mu_mis + B %*% (x_obs - mu_obs)
+      }
+    }
+
+    # --- M-step: update mu and sigma ---
+    mu_new <- colMeans(df_filled)
+    sigma_new <- cov(df_filled)
+
+    # --- Compute observed-data log-likelihood ---
+    loglik <- 0
+    for (i in 1:n) {
+      obs_idx <- which(!is.na(df[i, ]))
+      x_obs <- df[i, obs_idx]
+      mu_obs <- mu_new[obs_idx]
+      Sigma_oo <- sigma_new[obs_idx, obs_idx, drop = FALSE]
+
+      diff <- x_obs - mu_obs
+      k <- length(obs_idx)
+
+      term <- -0.5 * (
+        log(det(Sigma_oo)) +
+          t(diff) %*% solve(Sigma_oo) %*% diff +
+          k * log(2 * pi)
+      )
+      loglik <- loglik + term
+    }
+    loglik_list[step] <- loglik
+
+    # check convergence
+    mu_diff <- max(abs(mu_new - mu))
+    sigma_diff <- max(abs(sigma_new - sigma))
+    param_diffs[step, ] <- c(mu_diff, sigma_diff)
+
+    if (mu_diff < tol && sigma_diff < tol) {
+      message("Converged at step ", step)
+      break
+    }
+
+    mu <- mu_new
+    sigma <- sigma_new
+  }
+
+  which_na = which(is.na(df), arr.ind = T)
+  which_obs = which(!is.na(df), arr.ind = T)
+  return(list(mu = mu, sigma = sigma,
+              df_imputed = df_filled,
+              steps = step,
+              loglik = loglik_list[1:step],
+              param_diffs = param_diffs[1:step,],
+              which_na = data.frame(which_na),
+              which_obs = data.frame(which_obs)
+              ))
+
+}
+
+### MVI Algorithm ###
+
+run_mvi <- function(em, num_sets = 10) {
+
+  X_star <- em$df_imputed
+  n <- nrow(X_star)
+  d <- ncol(X_star)
+  mu_star <- em$mu
+  sigma_star <- em$sigma
+  X_final <- X_star
+
+  full_miss <- nrow(em$which_na)
+  X_miss_dist <- data.frame(matrix(0, ncol = num_sets + 2, nrow = full_miss))
+  X_miss_dist[,((num_sets+1):(num_sets+2))] <- em$which_na
+  colnames(X_miss_dist) <- c(paste0("set", 1:num_sets), 'row', 'col')
+
+  for (set in 1:num_sets) {
+    for (i in 1:n) {
+      obs_idx <- em$which_obs[,2][em$which_obs[,1] == i]
+      mis_idx <- em$which_na[,2][em$which_na[,1] == i]
+      n_miss <- length(mis_idx)
+      if (n_miss > 0) {
+        mu_obs <- mu_star[obs_idx]
+        mu_mis <- mu_star[mis_idx]
+
+        Sigma_oo <- sigma_star[obs_idx, obs_idx, drop = FALSE]
+        Sigma_mo <- sigma_star[mis_idx, obs_idx, drop = FALSE]
+        B <- Sigma_mo %*% solve(Sigma_oo)
+
+        # compute error term
+        miss <- 1:d %in% mis_idx
+        E_Sigma <- sigma_star[miss,miss] - sigma_star[miss,!miss] %*% solve(sigma_star[!miss,!miss]) %*% sigma_star[!miss,miss]
+        E <- MASS::mvrnorm(1, rep(0, n_miss), E_Sigma)
+
+        # compute new imputation based on error term
+        x_obs <- X_star[i, obs_idx]
+        X_final[i, mis_idx] <- mu_mis + B %*% (x_obs - mu_obs) + E
+
+        # set dist
+        get_mat_rows <- X_miss_dist[X_miss_dist[num_sets+1] == i,]
+        get_mat_rows[,set] <- X_final[i, mis_idx]
+        X_miss_dist[X_miss_dist[num_sets+1] == i,set] <- get_mat_rows[,set]
+      }
+    }
+  }
+
+
+
+  full_error = X_final - X_star
+
+  return(list(
+    diff_mat = full_error,
+    df_mvi = data.frame(X_final),
+    df_dist = data.frame(X_miss_dist)
+    ))
+
+}
+
+## Computing F-Statistic ##
+
+find_t <- function(p, v_h) {
+  t =  sqrt((p^2 * v_h^2 - 4) / (p^2 + v_h^2 - 5))
+  return(t)
+}
+
+wilk_to_f <- function(Lambda, t, df1, df2) {
+  F_stat <- ((1-Lambda^(1/t)) / Lambda^(1/t)) * (df2/df1)
+  return(F_stat)
+}
 ```
 # Introduction
-words
+This analysis attempts to answer questions about fatty acids in olives found in two different regions. The data includes response variables palmitic, palmitoleic, stearic, oleic, linoleic, eicosanoic, linolenic, and eicosenoic acids predicted by region (Region 2 and Region 4). 
+
+This report assesses whether the olive samples from each region deviate from their historical averages and whether the two regions deviate from each other. We also explore whether linoleic and linolenic acids can be dropped from the list of fatty acids without significantly decreasing the separation of the two samples.
+
+The data analyzed contains several missing values. Part of this report determines whether the data is missing at random and provides a new dataset with imputed values using the Expectation-Maximization (EM) algorithm and multiple imputation.
+
+We will show that... (put conclusions here)
 
 # Data Preparation
-words
+Due to missing values in the data, we use the EM algorithm combined with multiple imputation to fill in missing values, assuming normality and that the data is missing at random (MAR). We explore whether the data is MAR in the next section.
+
+The problem with a simple imputed data set is that it does not take into account random error. To solve this, we created a distribution of values for each missing cell and selected from that distribution at random.
+(add Jackson's graph with the red line showing this?)
+
+
 ```{r, echo = FALSE}
 # EM + Multiple Imputation assuming normality and MAR
 # **THIS IS A PLACEHOLDER AND IS USING A DIFFERENT IMPUTATION METHOD**
@@ -38,7 +208,7 @@ oliver4a_imputed <- impute_data(oliver4a)
 ```
 
 # Assessment of Missing at Random (MAR) Assumption
-words
+To assess whether the data is missing at random, we used Little's MCAR (Missing Completely At Random) Test. (It looks like that's what Jackson did; Ty did you do something else?)
 ```{r, echo = FALSE}
 pairwise_missing_fisher_p_values <- function(data) {
   predictor_levels <- colnames(data)
@@ -142,10 +312,146 @@ hotellings_with_imputed_datasets(oliver4a_imputed, mu4a_not)
 ```
 
 # Comparison between Regions 2 and 4
-words
+```{r, echo = FALSE}
+# here's code I used, but feel free to replace datasets with above; rest will stay the same. I used first prinicples for the T test, but it matches up with the package
+# Gavin's Code for comparing region 2 to 4
+
+o2 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a")
+o4 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a")
+set.seed(39)
+o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$df_mvi
+o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$df_mvi
+
+o2_imp$region <- 2
+o4_imp$region <- 4
+
+o2_without_region <- o2_imp %>% select(-region)
+o4_without_region <- o4_imp %>% select(-region)
+
+# Hotelling's two-sample T^2 test from first principles
+
+n1 <- nrow(o2_without_region)
+n2 <- nrow(o4_without_region)
+p <- ncol(o2_without_region)
+
+# means
+mean1 <- colMeans(o2_without_region)
+mean2 <- colMeans(o4_without_region)
+mean_diff <- mean1 - mean2
+
+# covariances
+cov1 <- cov(o2_without_region)
+cov2 <- cov(o4_without_region)
+pooled_cov <- ((n1 - 1) * cov1 + (n2 - 1) * cov2) / (n1 + n2 - 2)
+
+# Hotelling's T^2 statistic
+t_squared <- (n1 * n2) / (n1 + n2) * t(mean_diff) %*% solve(pooled_cov) %*% mean_diff
+
+# Convert the T^2 to an F-statistic
+f_statistic <- (n1 + n2 - p - 1) * t_squared / (p * (n1 + n2 - 2))
+df1 <- p # 8
+df2 <- n1 + n2 - p - 1 # 83
+
+# p-value
+p_value <- 1 - pf(f_statistic, df1, df2)
+
+cat("Hotelling's T^2 Statistic:", as.numeric(t_squared), "\n") # 189.7534
+cat("F-statistic:", as.numeric(f_statistic), "\n") # 21.87435
+cat("Numerator degrees of freedom:", df1, "\n")
+cat("Denominator degrees of freedom:", df2, "\n")
+cat("P-value:", as.numeric(p_value), "\n")
+```
+To compare whether Regions 2 and 4 are the same, we used Hotelling's 2-Sample T test. We calculated a $T^2$ value of `r as.numeric(t_squared)` which converts to an F-Statistic of `r as.numeric(f_statistic)`. Using the F distribution with numerator degrees of freedom of `r df1` and a denominator degrees of freedom of `r df2` results in a P-Value of <.0001.
+
+This is statistically significant and provides overwhelming evidence that the overall fatty-acid profiles of regions 2 and 4 differ. The agronomist's belief that region 2 and region 4 olives have evolved to have essentially the same profile in terms of the eight fatty acids is not supported by the data. The observed differences are unlikely to have come from random sampling variation alone.
+
+It is important to note that the two samples were drawn by different organizations with potentially different data collection procedures, chemical analysis tools, and data censoring mechanisms. This combined with missing data that was imputed using MVI exposes limitations of this analysis. We do not know if significant variation comes from the different data collection procedures.
+
+NOTE: RUBERIC SHOWS THAT WE NEED TO CALCULATE A DISCRIMINANT FUNCTION, BUT I'M NOT SURE WHERE THAT FITS WITH ANSWERING THIS PROBLEM
 
 # Assessment of Linoleic and Linolenic Acids
-words
+```{r, echo = FALSE}
+library(readr)
+o2 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a")
+o4 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a")
+set.seed(39)
+o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$df_mvi
+o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$df_mvi
+
+o2_imp$region <- 2
+o4_imp$region <- 4
+
+ofull <- rbind(o2_imp, o4_imp)
+ofull$region <- as.factor(ofull$region)
+
+# COMPUTE Wilk's Lambdas #
+
+fit_full <- manova(
+  cbind(palmitic, palmitoleic, stearic, oleic, linoleic, eicosanoic, linolenic, eicosenoic) ~ region,
+  data = ofull
+  )
+fit_red <- manova(
+  cbind(palmitic, palmitoleic, stearic, oleic, eicosanoic, eicosenoic) ~ region,
+  data = ofull
+  )
+lambda_yz <- summary(fit_full, test="Wilks")$stats["region", "Wilks"]
+lambda_y  <- summary(fit_red,  test="Wilks")$stats["region", "Wilks"]
+lambda_z_bar_y <- lambda_yz / lambda_y
+
+# COMPUTE F-statistic
+
+n_tmt = length(unique(ofull$region))
+n_cols <- ncol(ofull)-1
+q = ncol(fit_red$fitted.values)
+p = n_cols - q
+n = nrow(ofull)
+
+# Test S
+v_h <- n_tmt-1
+v_e <- n - n_tmt - q # -q number of vars in y
+
+t = find_t(q, v_h)
+w = v_e + v_h - .5 * (p + v_h + 1)
+df1 = p * v_h
+df2 = w*t - .5 * (p * v_h - 2)
+
+Fs <- wilk_to_f(lambda_z_bar_y, t, df1, df2)
+paste("F-stat for region effect:", Fs)
+paste("df1:", df1, "df2:", df2)
+paste("P-value:", 1-pf(Fs, df1, df2))
+
+
+# Note, something helpful for computing disc. scores
+
+# since there are only two groups, can do something like...
+xbar1 <- apply(o2_imp[,-9],2,mean)
+xbar2 <- apply(o4_imp[,-9],2,mean)
+S1 <- var(o2_imp[,-9])
+S2 <- var(o4_imp[,-9])
+n1 <- nrow(o2_imp)
+n2 <- nrow(o4_imp)
+Spl <- ((n1-1)*S1 + (n2-1)*S2)/(n1+n2-2)
+
+a <- solve(Spl) %*% (xbar2 - xbar1)
+a
+astar <- sqrt(diag(Spl)) * a
+astar
+```
+Using a conditional Wilk's $\Lambda$ test, we assessed whether linoleic acid and linolenic acid were important in contributing to the significant difference observed between regions 2 and 4. We set up the following hypothesis:
+
+CHECK THESE HYPOTHESES
+$$
+H_0: \boldsymbol{\mu}^{(full)} = \boldsymbol{\mu}^{(reduced)} 
+$$
+$$
+H_a: \boldsymbol{\mu}^{(full)} \ne \boldsymbol{\mu}^{(reduced)}
+$$
+Where the full model includes all 8 fatty acids and the reduced model excludes linoleic and linolenic acids.
+
+With a Wilk's $\Lambda$ of _______ converted to an F statistic, we calculated a P-value of < .05 and reject the null hypothesis. 
+To support this rejection, we found that the discriminant functions separating regions also indicate some form of separation for linoleic and linolenic acids. In this case, we see that the standardized discriminant scores for each of them have high positive influence indicating that observations with higher values of linoleic and linolenic acids more likely reside in Region 2.
+
+We conclude that linoleic and linoeic acids are important in contributing to the separation of the two regions beyond the information available from the other 6 acids.
 
 # Conclusions and Recommendations
 words
