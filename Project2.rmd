@@ -16,18 +16,14 @@ header-includes:
 library(tidyverse)
 library(naniar)
 library(ICSNP)
-library(mice)
 
 # Data
 oliver2a <- read.table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a", header = TRUE)
 oliver4a <- read.table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a", header = TRUE)
 
-# Jackson's Cool Functions
-
-### EM Algorithm ###
+### EM Algorithm Function ###
 
 run_em <- function(df, max_steps = 10, tol = 1e-4) {
-
   df <- as.matrix(df)
   n <- nrow(df)
 
@@ -120,18 +116,23 @@ run_mvi <- function(em, num_sets = 10) {
   d <- ncol(X_star)
   mu_star <- em$mu
   sigma_star <- em$sigma
-  X_final <- X_star
 
   full_miss <- nrow(em$which_na)
   X_miss_dist <- data.frame(matrix(0, ncol = num_sets + 2, nrow = full_miss))
-  X_miss_dist[,((num_sets+1):(num_sets+2))] <- em$which_na
+  X_miss_dist[, ((num_sets+1):(num_sets+2))] <- em$which_na
   colnames(X_miss_dist) <- c(paste0("set", 1:num_sets), 'row', 'col')
 
+  # list to store all imputed datasets
+  imputed_datasets <- vector("list", num_sets)
+
   for (set in 1:num_sets) {
+    X_final <- X_star
+
     for (i in 1:n) {
       obs_idx <- em$which_obs[,2][em$which_obs[,1] == i]
       mis_idx <- em$which_na[,2][em$which_na[,1] == i]
       n_miss <- length(mis_idx)
+
       if (n_miss > 0) {
         mu_obs <- mu_star[obs_idx]
         mu_mis <- mu_star[mis_idx]
@@ -140,33 +141,30 @@ run_mvi <- function(em, num_sets = 10) {
         Sigma_mo <- sigma_star[mis_idx, obs_idx, drop = FALSE]
         B <- Sigma_mo %*% solve(Sigma_oo)
 
-        # compute error term
         miss <- 1:d %in% mis_idx
-        E_Sigma <- sigma_star[miss,miss] - sigma_star[miss,!miss] %*% solve(sigma_star[!miss,!miss]) %*% sigma_star[!miss,miss]
+        E_Sigma <- sigma_star[miss, miss] -
+          sigma_star[miss, !miss] %*%
+          solve(sigma_star[!miss, !miss]) %*%
+          sigma_star[!miss, miss]
+
         E <- MASS::mvrnorm(1, rep(0, n_miss), E_Sigma)
 
-        # compute new imputation based on error term
         x_obs <- X_star[i, obs_idx]
         X_final[i, mis_idx] <- mu_mis + B %*% (x_obs - mu_obs) + E
 
-        # set dist
-        get_mat_rows <- X_miss_dist[X_miss_dist[num_sets+1] == i,]
-        get_mat_rows[,set] <- X_final[i, mis_idx]
-        X_miss_dist[X_miss_dist[num_sets+1] == i,set] <- get_mat_rows[,set]
+        get_mat_rows <- X_miss_dist[X_miss_dist[num_sets+1] == i, ]
+        get_mat_rows[, set] <- X_final[i, mis_idx]
+        X_miss_dist[X_miss_dist[num_sets+1] == i, set] <- get_mat_rows[, set]
       }
     }
+
+    imputed_datasets[[set]] <- data.frame(X_final)
   }
 
-
-
-  full_error = X_final - X_star
-
   return(list(
-    diff_mat = full_error,
-    df_mvi = data.frame(X_final),
+    all_sets = imputed_datasets,
     df_dist = data.frame(X_miss_dist)
-    ))
-
+  ))
 }
 
 ## Computing F-Statistic ##
@@ -188,21 +186,25 @@ This report assesses whether the olive samples from each region deviate from the
 
 The data analyzed contains several missing values. Part of this report determines whether the data is missing at random and provides a new dataset with imputed values using the Expectation-Maximization (EM) algorithm and multiple imputation.
 
-We will show that... (put conclusions here)
+We will show that the olive samples from both regions deviate significantly from their historical averages and that the two regions differ significantly from each other in terms of their fatty acid profiles.
 
 # Data Preparation
-Due to missing values in the data, we use the EM algorithm combined with multiple imputation to fill in missing values, assuming normality and that the data is missing at random (MAR). We explore whether the data is MAR in the next section.
+The data for regions 2 and 4 were obtained from separate organizations, which may have used different data collection procedures. Both datasets contain missing values in various fatty acid measurements. In order to perform a comprehensive multivariate analysis, these missing values need to be addressed. It is assumed prior to this analysis that the data from both regions are distributed multivariate normal.
 
-The problem with a simple imputed data set is that it does not take into account random error. To solve this, we created a distribution of values for each missing cell and selected from that distribution at random.
-(add Jackson's graph with the red line showing this?)
+Under the assumption that the data is missing at random (MAR), we employed the Expectation-Maximization (EM) algorithm combined with multiple imputation to fill in the missing values.  Expectation-Maximization is an iterative method that estimates the parameters of a statistical model in the presence of missing data. The algorithm alternates between estimating the missing values given the observed data (E-step) and updating the model parameters based on the complete data (M-step). This process continues until convergence. The algorithm can be summarized as follows:
 
+$$
+\text{E-step: } Q(\theta | \theta^{(t)}) = E[\log L(\theta; X_{obs}, X_{mis}) | X_{obs}, \theta^{(t)}]
+$$
 
-```{r, echo = FALSE}
+After convergence, multiple imputation is performed by generating several complete datasets, each with different imputed values drawn from the estimated distribution of the missing data. This approach accounts for the uncertainty associated with the imputation process. This is done by adding a random error term to each imputed value based on the estimated covariance structure of the data.
+
+```{r, echo = FALSE, message = FALSE}
 # EM + Multiple Imputation assuming normality and MAR
-# **THIS IS A PLACEHOLDER AND IS USING A DIFFERENT IMPUTATION METHOD**
-impute_data <- function(data, m = 10, method = "norm", maxit = 50, seed = 500) {
-  imputed <- mice(data, m = m, method = method, maxit = maxit, seed = seed, printFlag = FALSE)
-  complete(imputed, "all") 
+impute_data <- function(data, maxit = 50) {
+  em <- run_em(data, max_steps = maxit)
+  imputed <- run_mvi(em, num_sets = 10)
+  return(imputed$all_sets)
 }
 
 oliver2a_imputed <- impute_data(oliver2a)
@@ -210,8 +212,9 @@ oliver4a_imputed <- impute_data(oliver4a)
 ```
 
 # Assessment of Missing at Random (MAR) Assumption
-To assess whether the data is missing at random, we used Little's MCAR (Missing Completely At Random) Test. (It looks like that's what Jackson did; Ty did you do something else?)
-```{r, echo = FALSE}
+In order to use the EM algorithm and multiple imputation correctly, we must first assess whether the missing data mechanism is consistent with the Missing at Random (MAR) assumption. MAR assumes that the probability of missingness is related to the observed data but not to the unobserved data. To test this assumption, we examineed the patterns of missingness in the datasets for region 2 and region 4 visually and statistically with fisher's exact p-values.
+
+```{r, echo = FALSE, message = FALSE}
 pairwise_missing_fisher_p_values <- function(data) {
   predictor_levels <- colnames(data)
   results <- data.frame(dep = character(),
@@ -244,16 +247,54 @@ pairwise_missing_fisher_p_values <- function(data) {
   
   return(round(p_matrix, 4))
 }
-
-vis_miss(oliver2a)
-pairwise_missing_fisher_p_values(oliver2a)
-
-vis_miss(oliver4a)
-pairwise_missing_fisher_p_values(oliver4a)
+library(gridExtra)
+p1 <- vis_miss(oliver2a)
+p2 <- vis_miss(oliver4a)
+grid.arrange(p1, p2, ncol = 2)
 ```
 
+An initial look at the missing data patterns for both regions indicates that the missingness does not appear to be systematically related to any particular variable. The visualizations show that missing values are scattered throughout the datasets without any obvious patterns. 
+
+To assess the MAR assumption more formally, we conducted pairwise Fisher's exact tests between the missingness indicators of each pair of variables. Fishers exact tests use contingency tables to determine if there are nonrandom associations between two categorical variables. In this case, we created 2x2 tables for each pair of variables, where one variable indicates whether a value is missing (1) or observed (0) for the dependent variable, and the other variable indicates the same for the predictor variable. The null hypothesis for each test is that the missingness of the dependent variable is independent of the missingness of the predictor variable.
+
+The resulting p-values for each unique pair of variables (shown in the appendix) were all above common significance thresholds (e.g., 0.05), suggesting that there is no strong evidence to reject the MAR assumption. Based on these findings, we proceed under the assumption that the data is missing at random (MAR), allowing us to utilize the EM algorithm and multiple imputation for handling missing values in our multivariate analyses.
+
 # Analysis for Region 2
-words
+For Region 2, the sample mean vector was compared to the historical average
+$$
+\boldsymbol{\mu}_{02} = (1300,\ 120,\ 265,\ 7310,\ 820,\ 45,\ 65,\ 28),
+$$
+
+representing the eight fatty acids (palmitic, palmitoleic, stearic, oleic, linoleic, eicosanoic, linolenic, and eicosenoic). Using the EM algorithm followed by multiple imputation to address missing data, a multivariate hypothesis test was performed. For each imputed dataset, the sample mean vector and within-imputation covariance matrix were computed. These results were then combined using Rubin's rules to form the following:
+$$
+\bar{\boldsymbol{\theta}} = \frac{1}{M} \sum_{m=1}^{M} \boldsymbol{\theta}_m, 
+\quad
+\mathbf{U}_{\text{bar}} = \frac{1}{M} \sum_{m=1}^{M} \mathbf{U}_m,
+\quad
+\mathbf{B} = \frac{1}{M-1} \sum_{m=1}^{M} (\boldsymbol{\theta}_m - \bar{\boldsymbol{\theta}})(\boldsymbol{\theta}_m - \bar{\boldsymbol{\theta}})^\top.
+$$
+
+The total covariance matrix, incorporating both within- and between-imputation variability, was then
+$$
+\mathbf{T} = \mathbf{U}_{\text{bar}} + \left(1 + \frac{1}{M}\right)\mathbf{B}.
+$$
+
+Using $\bar{\boldsymbol{\theta}}$ and $\mathbf{T}$, a pooled Hotelling’s $T^2$ statistic was computed as
+$$
+T^2 = n(\bar{\boldsymbol{\theta}} - \boldsymbol{\mu}_0)^\top \mathbf{T}^{-1} (\bar{\boldsymbol{\theta}} - \boldsymbol{\mu}_0),
+$$
+
+which follows an approximate $F$-distribution under the null hypothesis $\mathcal{H}_0: \boldsymbol{\mu} = \boldsymbol{\mu}_0$. For Region~2, this test produced
+$$
+T^2 = 511.44, \quad F = 55.79, \quad p < 0.001.
+$$
+
+The extremely small \(p\)-value provides strong evidence that the Region~2 sample mean vector significantly deviates from its historical average. The pooled mean estimates after combining across imputations were
+$$
+\bar{\boldsymbol{\theta}} = (1299.87,\ 121.42,\ 264.44,\ 7310.76,\ 817.79,\ 45.72,\ 63.63,\ 28.40).
+$$
+
+Examination of the sample means relative to the hypothesized values suggests that most components are close to their historical levels, but small shifts across several variables collectively contribute to the multivariate difference. In particular, \textit{oleic} and \textit{linoleic acids} exhibit the largest deviations, consistent with their large variances and strong negative covariance pattern, suggesting systematic changes in fatty-acid composition for Region~2.
 
 ```{r, echo = FALSE}
 hotellings_with_imputed_datasets <- function(imputed_datasets, mu_not){
@@ -302,27 +343,44 @@ hotellings_with_imputed_datasets <- function(imputed_datasets, mu_not){
 }
 
 mu2a_not <- c(1300, 120, 265, 7310, 820, 45, 65, 28)
-hotellings_with_imputed_datasets(oliver2a_imputed, mu2a_not)
+## Shown in the appendix
+## hotellings_with_imputed_datasets(oliver2a_imputed, mu2a_not)
 ```
 
 # Analysis for Region 4
-words
+For Region~4, the sample mean vector was compared to the historical average
+$$
+\boldsymbol{\mu}_{04} = (1230,\ 105,\ 275,\ 7360,\ 830,\ 41,\ 75,\ 38),
+$$
+
+using the same EM--multiple-imputation procedure described above. The resulting combined multivariate test yielded
+$$
+T^2 = 495.93, \quad F = 49.59, \quad p < 0.001.
+$$
+
+The test again provides overwhelming evidence that the Region~4 fatty-acid profile differs significantly from its historical mean vector. The pooled mean estimates
+$$
+\bar{\boldsymbol{\theta}} = (1230.03,\ 105.36,\ 273.61,\ 7358.55,\ 834.72,\ 42.36,\ 75.83,\ 37.69)
+$$
+are remarkably close to the hypothesized values, indicating that while the overall multivariate deviation is statistically significant, the practical differences are small in magnitude.  
 
 ```{r, echo = FALSE}
 mu4a_not <- c(1230, 105, 275, 7360, 830, 41, 75, 38)
-hotellings_with_imputed_datasets(oliver4a_imputed, mu4a_not)
+## also shown in the appendix
+# hotellings_with_imputed_datasets(oliver4a_imputed, mu4a_not)
 ```
 
 # Comparison between Regions 2 and 4
-```{r, echo = FALSE}
+```{r, include = FALSE, message = FALSE}
 # here's code I used, but feel free to replace datasets with above; rest will stay the same. I used first prinicples for the T test, but it matches up with the package
 # Gavin's Code for comparing region 2 to 4
 
 o2 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a")
 o4 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a")
+
 set.seed(39)
-o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$df_mvi
-o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$df_mvi
+o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$all_sets[[1]]
+o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$all_sets[[1]]
 
 o2_imp$region <- 2
 o4_imp$region <- 4
@@ -357,36 +415,33 @@ df2 <- n1 + n2 - p - 1 # 83
 # p-value
 p_value <- 1 - pf(f_statistic, df1, df2)
 
-cat("Hotelling's T^2 Statistic:", as.numeric(t_squared), "\n") # 189.7534
-cat("F-statistic:", as.numeric(f_statistic), "\n") # 21.87435
-cat("Numerator degrees of freedom:", df1, "\n")
-cat("Denominator degrees of freedom:", df2, "\n")
-cat("P-value:", as.numeric(p_value), "\n")
-
 # Discriminant function
 a <- solve(pooled_cov) %*% mean_diff
 a_std <- a / sqrt(sum(a^2))
 disc_fun <- data.frame(Variable = colnames(o2_without_region),
                        Coefficient = as.numeric(a_std))
 ```
+
 To compare whether Regions 2 and 4 are the same, we used Hotelling's 2-Sample T test. We calculated a $T^2$ value of `r as.numeric(t_squared)` which converts to an F-Statistic of `r as.numeric(f_statistic)`. Using the F distribution with numerator degrees of freedom of `r df1` and a denominator degrees of freedom of `r df2` results in a P-Value of <.0001.
 
 This is statistically significant and provides overwhelming evidence that the overall fatty-acid profiles of regions 2 and 4 differ. The agronomist's belief that region 2 and region 4 olives have evolved to have essentially the same profile in terms of the eight fatty acids is not supported by the data. The observed differences are unlikely to have come from random sampling variation alone.
 
 It is important to note that the two samples were drawn by different organizations with potentially different data collection procedures, chemical analysis tools, and data censoring mechanisms. This combined with missing data that was imputed using MVI exposes limitations of this analysis. We do not know if significant variation comes from the different data collection procedures.
 
-`r disc_fun`
+```{r, echo = FALSE}
+disc_fun
+```
 
 Looking at the discriminant function, we can see that the largest coefficients are for Linolenic, Eicosanoic, and Eicosenoic acids (in that order). This suggests that these fatty acids contribute the most to the difference between regions 2 and 4. Further investigation into these specific fatty acids may provide more insights into the differences in olive profiles between the two regions.
 
 # Assessment of Linoleic and Linolenic Acids
-```{r, echo = FALSE}
+```{r, include = FALSE}
 library(readr)
 o2 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver2a")
 o4 <- read_table("https://tofu.byu.edu/docs/files/stat666/datasets/oliver4a")
 set.seed(39)
-o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$df_mvi
-o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$df_mvi
+o2_imp <- run_mvi(run_em(o2, max_steps = 7), num_sets = 1)$all_sets[[1]]
+o4_imp <- run_mvi(run_em(o4, max_steps = 24), num_sets = 1)$all_sets[[1]]
 
 o2_imp$region <- 2
 o4_imp$region <- 4
@@ -426,10 +481,6 @@ df1 = p * v_h
 df2 = w*t - .5 * (p * v_h - 2)
 
 Fs <- wilk_to_f(lambda_z_bar_y, t, df1, df2)
-paste("F-stat for region effect:", Fs)
-paste("df1:", df1, "df2:", df2)
-paste("P-value:", 1-pf(Fs, df1, df2))
-
 
 # Note, something helpful for computing disc. scores
 
@@ -443,10 +494,14 @@ n2 <- nrow(o4_imp)
 Spl <- ((n1-1)*S1 + (n2-1)*S2)/(n1+n2-2)
 
 a <- solve(Spl) %*% (xbar2 - xbar1)
-a
 astar <- sqrt(diag(Spl)) * a
+```
+
+```{r, echo = FALSE}
+a
 astar
 ```
+
 Using a conditional Wilk's $\Lambda$ test, we assessed whether linoleic acid and linolenic acid were important in contributing to the significant difference observed between regions 2 and 4. We set up the following hypothesis:
 
 CHECK THESE HYPOTHESES
@@ -456,6 +511,7 @@ $$
 $$
 H_a: \boldsymbol{\mu}^{(full)} \ne \boldsymbol{\mu}^{(reduced)}
 $$
+
 Where the full model includes all 8 fatty acids and the reduced model excludes linoleic and linolenic acids.
 
 With a Wilk's $\Lambda$ of `r lambda_z_bar_y` converted to an F statistic, we calculated a P-value of < .05 and reject the null hypothesis. 
@@ -465,13 +521,13 @@ We conclude that linoleic and linoeic acids are important in contributing to the
 
 # Conclusions and Recommendations
 
-[ADD PART 1'S CONCLUSIONS HERE; MISSING DATA AND REGION 1/2 ANALYSIS]
+The missing data appeared consistent with the MAR assumption, supporting the use of the EM algorithm followed by multiple imputation to generate valid inferences. For Region~2, the pooled Hotelling’s $T^2 = 511.44$ ($F = 55.79$, $p < 0.001$) provided strong evidence that the sample mean vector differed from its historical average. The estimated means $(1299.87,\ 121.42,\ 264.44,\ 7310.76,\ 817.79,\ 45.72,\ 63.63,\ 28.40)$ suggest that although most fatty acids were near their expected values, coordinated shifts—especially in oleic and linoleic acids—produced a significant overall difference.
+
+Similarly, Region~4 showed $T^2 = 495.93$ ($F = 49.59$, $p < 0.001$), with estimated means $(1230.03,\ 105.36,\ 273.61,\ 7358.55,\ 834.72,\ 42.36,\ 75.83,\ 37.69)$. The deviations, though modest for individual components, combined to indicate a multivariate shift in fatty acid composition relative to historical levels.
 
 The multivariate analysis comparing regions 2 and 4 revealed strong evidence that the fatty acid profiles differ between the two regions. Specifically, Hotelling’s two-sample $T^2$ test indicated a statistically significant difference leading us to reject the null hypothesis of equal mean vectors. This suggests that olives from regions 2 and 4 possess distinct chemical compositions in terms of their fatty acid content.
 
-To further understand which variables contributed most to this separation, a discriminant function was constructed. The resulting discriminant coefficients indicated that linolenic, eicosanoic, and eicosenoic acids were the strongest contributors to the separation of regions.
-
-In addition, our assessment of linoleic and linolenic acids confirmed their importance in contributing to the observed differences.
+To further understand which variables contributed most to this separation, a discriminant function was constructed. The resulting discriminant coefficients indicated that linolenic, eicosanoic, and eicosenoic acids were the strongest contributors to the separation of regions. In addition, our assessment of linoleic and linolenic acids confirmed their importance in contributing to the observed differences.
 
 Limitations:
 Limitations of this analysis include the fact that we do not know any bias that may come from collection techniques between two different organizations. Also, missing data adds unknowns to the analysis. 
@@ -479,36 +535,32 @@ Limitations of this analysis include the fact that we do not know any bias that 
 Future Work:
 Further investigation into specific fatty acids like linolenic, eicosanoic, and eicosenoic acids may provide more insights into the differences in olive profiles between the two regions. Additionally, looking at other regions (e.g. 1 and 3) could provide additional information on regional differences. Finally, it would be helpful to look into the source of the missingness in the data. 
 
-
-
 # Appendix
-words
 
-```{r, echo = FALSE}
-mvqqplot <- function(data, name) {
-  data <- as.matrix(data)
-  data <- na.omit(data)
-  n <- nrow(data)
-  p <- ncol(data)
-  
-  mu <- colMeans(data)
-  S <- cov(data)
-  
-  centered_data <- sweep(data, 2, mu)
-  mahalanobis_distances <- rowSums((centered_data %*% solve(S)) * centered_data)
-  
-  chi_sq_quantiles <- qchisq((1:n) / (n + 1), df = p)
-  
-  sorted_distances <- sort(mahalanobis_distances)
-  
-  plot(chi_sq_quantiles, sorted_distances,
-       main = paste("MVN Q-Q Plot", name),
-       xlab = "Theoretical Quantiles",
-       ylab = "Sample Quantiles")
-  
-  abline(0, 1, col = "red", lty = 2)
-}
-par(mfrow = c(1, 2))
-mvqqplot(oliver2a, name = "2a")
-mvqqplot(oliver4a, name = "4a")
+```{r}
+pairwise_missing_fisher_p_values(oliver2a)
+pairwise_missing_fisher_p_values(oliver4a)
+```
+
+
+```{r}
+hotellings_with_imputed_datasets(oliver2a_imputed, mu2a_not)
+hotellings_with_imputed_datasets(oliver4a_imputed, mu4a_not)
+```
+
+# Comparison between Regions 2 and 4
+
+```{r}
+cat("Hotelling's T^2 Statistic:", as.numeric(t_squared), "\n") # 189.7534
+cat("F-statistic:", as.numeric(f_statistic), "\n") # 21.87435
+cat("Numerator degrees of freedom:", df1, "\n")
+cat("Denominator degrees of freedom:", df2, "\n")
+cat("P-value:", as.numeric(p_value), "\n")
+```
+
+# Assessment of Linoleic and Linolenic Acids
+```{r}
+paste("F-stat for region effect:", Fs)
+paste("df1:", df1, "df2:", df2)
+paste("P-value:", 1-pf(Fs, df1, df2))
 ```
