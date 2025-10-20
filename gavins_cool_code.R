@@ -69,14 +69,8 @@ cat("P-value:", as.numeric(p_value), "\n")
 
 
 # ---------- Discriminant Function Calculation ----------
-
-# Discriminant vector (a)
 a <- solve(pooled_cov) %*% mean_diff
-
-# Normalize for interpretability (optional)
 a_std <- a / sqrt(sum(a^2))
-
-# Print the coefficients
 disc_fun <- data.frame(Variable = colnames(o2_without_region),
                        Coefficient = as.numeric(a_std))
 print(disc_fun)

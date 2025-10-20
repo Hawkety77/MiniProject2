@@ -2,12 +2,14 @@
 title: "Mini Project 1"
 author: "Jackson Passey, Gavin Hatch, Ty Hawkes"
 date: "`r Sys.Date()`"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 fontsize: 11pt
 geometry: margin=1in
 header-includes:
-  - \usepackage{setspace}
-  - \singlespacing
+- \usepackage{setspace}
+- \singlespacing
 ---
 ```{r, include = FALSE}
 # Libraries
@@ -360,6 +362,12 @@ cat("F-statistic:", as.numeric(f_statistic), "\n") # 21.87435
 cat("Numerator degrees of freedom:", df1, "\n")
 cat("Denominator degrees of freedom:", df2, "\n")
 cat("P-value:", as.numeric(p_value), "\n")
+
+# Discriminant function
+a <- solve(pooled_cov) %*% mean_diff
+a_std <- a / sqrt(sum(a^2))
+disc_fun <- data.frame(Variable = colnames(o2_without_region),
+                       Coefficient = as.numeric(a_std))
 ```
 To compare whether Regions 2 and 4 are the same, we used Hotelling's 2-Sample T test. We calculated a $T^2$ value of `r as.numeric(t_squared)` which converts to an F-Statistic of `r as.numeric(f_statistic)`. Using the F distribution with numerator degrees of freedom of `r df1` and a denominator degrees of freedom of `r df2` results in a P-Value of <.0001.
 
@@ -367,7 +375,9 @@ This is statistically significant and provides overwhelming evidence that the ov
 
 It is important to note that the two samples were drawn by different organizations with potentially different data collection procedures, chemical analysis tools, and data censoring mechanisms. This combined with missing data that was imputed using MVI exposes limitations of this analysis. We do not know if significant variation comes from the different data collection procedures.
 
-NOTE: RUBERIC SHOWS THAT WE NEED TO CALCULATE A DISCRIMINANT FUNCTION, BUT I'M NOT SURE WHERE THAT FITS WITH ANSWERING THIS PROBLEM
+`r disc_fun`
+
+Looking at the discriminant function, we can see that the largest coefficients are for Linolenic, Eicosanoic, and Eicosenoic acids (in that order). This suggests that these fatty acids contribute the most to the difference between regions 2 and 4. Further investigation into these specific fatty acids may provide more insights into the differences in olive profiles between the two regions.
 
 # Assessment of Linoleic and Linolenic Acids
 ```{r, echo = FALSE}
@@ -448,13 +458,28 @@ H_a: \boldsymbol{\mu}^{(full)} \ne \boldsymbol{\mu}^{(reduced)}
 $$
 Where the full model includes all 8 fatty acids and the reduced model excludes linoleic and linolenic acids.
 
-With a Wilk's $\Lambda$ of _______ converted to an F statistic, we calculated a P-value of < .05 and reject the null hypothesis. 
+With a Wilk's $\Lambda$ of `r lambda_z_bar_y` converted to an F statistic, we calculated a P-value of < .05 and reject the null hypothesis. 
 To support this rejection, we found that the discriminant functions separating regions also indicate some form of separation for linoleic and linolenic acids. In this case, we see that the standardized discriminant scores for each of them have high positive influence indicating that observations with higher values of linoleic and linolenic acids more likely reside in Region 2.
 
 We conclude that linoleic and linoeic acids are important in contributing to the separation of the two regions beyond the information available from the other 6 acids.
 
 # Conclusions and Recommendations
-words
+
+[ADD PART 1'S CONCLUSIONS HERE; MISSING DATA AND REGION 1/2 ANALYSIS]
+
+The multivariate analysis comparing regions 2 and 4 revealed strong evidence that the fatty acid profiles differ between the two regions. Specifically, Hotelling’s two-sample $T^2$ test indicated a statistically significant difference leading us to reject the null hypothesis of equal mean vectors. This suggests that olives from regions 2 and 4 possess distinct chemical compositions in terms of their fatty acid content.
+
+To further understand which variables contributed most to this separation, a discriminant function was constructed. The resulting discriminant coefficients indicated that linolenic, eicosanoic, and eicosenoic acids were the strongest contributors to the separation of regions.
+
+In addition, our assessment of linoleic and linolenic acids confirmed their importance in contributing to the observed differences.
+
+Limitations:
+Limitations of this analysis include the fact that we do not know any bias that may come from collection techniques between two different organizations. Also, missing data adds unknowns to the analysis. 
+
+Future Work:
+Further investigation into specific fatty acids like linolenic, eicosanoic, and eicosenoic acids may provide more insights into the differences in olive profiles between the two regions. Additionally, looking at other regions (e.g. 1 and 3) could provide additional information on regional differences. Finally, it would be helpful to look into the source of the missingness in the data. 
+
+
 
 # Appendix
 words
