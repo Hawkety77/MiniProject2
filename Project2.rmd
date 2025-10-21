@@ -1,8 +1,9 @@
 ---
-title: "Mini Project 1"
+title: "Mini Project 2"
 author: "Jackson Passey, Gavin Hatch, Ty Hawkes"
 date: "`r Sys.Date()`"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
 fontsize: 11pt
@@ -186,7 +187,7 @@ This report assesses whether the olive samples from each region deviate from the
 
 The data analyzed contains several missing values. Part of this report determines whether the data is missing at random and provides a new dataset with imputed values using the Expectation-Maximization (EM) algorithm and multiple imputation.
 
-We will show that the olive samples from both regions deviate significantly from their historical averages and that the two regions differ significantly from each other in terms of their fatty acid profiles.
+We will show that the olive samples from both regions deviate significantly from their historical averages, that the two regions differ significantly from each other in terms of their fatty acid profiles, and that linoleic and linolenic acids should not be dropped from the analysis due to the significant amount of separation they contribute to distinguishing between the two regions.
 
 # Data Preparation
 The data for regions 2 and 4 were obtained from separate organizations, which may have used different data collection procedures. Both datasets contain missing values in various fatty acid measurements. In order to perform a comprehensive multivariate analysis, these missing values need to be addressed. It is assumed prior to this analysis that the data from both regions are distributed multivariate normal.
@@ -198,6 +199,11 @@ $$
 $$
 
 After convergence, multiple imputation is performed by generating several complete datasets, each with different imputed values drawn from the estimated distribution of the missing data. This approach accounts for the uncertainty associated with the imputation process. This is done by adding a random error term to each imputed value based on the estimated covariance structure of the data.
+
+It is important to note that because of the missing data, the degrees of freedom for the analysis will be affected. In this analysis, we use Rubin's rules to adjust the degrees of freedom accordingly. We computed the adjusted degrees of freedom using the formula: $\nu = (M - 1)(1 + \frac{1}{r})^2$ where $r = (1 + \frac{1}{M}) tr(B\bar{U}^{-1})$
+
+
+  
 
 ```{r, echo = FALSE, message = FALSE}
 # EM + Multiple Imputation assuming normality and MAR
@@ -212,7 +218,7 @@ oliver4a_imputed <- impute_data(oliver4a)
 ```
 
 # Assessment of Missing at Random (MAR) Assumption
-In order to use the EM algorithm and multiple imputation correctly, we must first assess whether the missing data mechanism is consistent with the Missing at Random (MAR) assumption. MAR assumes that the probability of missingness is related to the observed data but not to the unobserved data. To test this assumption, we examineed the patterns of missingness in the datasets for region 2 and region 4 visually and statistically with fisher's exact p-values.
+In order to use the EM algorithm and multiple imputation correctly, we must first assess whether the missing data mechanism is consistent with the Missing at Random (MAR) assumption. MAR assumes that the probability of missingness is related to the observed data but not to the unobserved data. To test this assumption, we examined the patterns of missingness in the datasets for region 2 and region 4 visually and statistically with fisher's exact p-values.
 
 ```{r, echo = FALSE, message = FALSE}
 pairwise_missing_fisher_p_values <- function(data) {
@@ -321,7 +327,7 @@ hotellings_with_imputed_datasets <- function(imputed_datasets, mu_not){
   B <- B / (M - 1)
   
   # total covariance (Rubin's rules)
-  T <- U_bar + (1 + 1/M) * B
+  T_val <- U_bar + (1 + 1/M) * B
 
   # Adjusted df for f distribution
   r <- (1 + 1/M) * sum(diag(B %*% solve(U_bar)))
@@ -329,13 +335,13 @@ hotellings_with_imputed_datasets <- function(imputed_datasets, mu_not){
   
   # Hotelling's T^2 statistic
   diff_mu <- theta_bar - mu_not
-  T2 <- n * t(diff_mu) %*% solve(T) %*% diff_mu
+  T2 <- t(diff_mu) %*% solve(T_val) %*% diff_mu
   F_stat <- as.numeric((n - p)/(p * (n - 1)) * T2)
   p_value <- 1 - pf(F_stat, p, nu)
   
   return(list(
     mean = theta_bar,
-    total_variance = T,
+    total_variance = T_val,
     T2 = as.numeric(T2),
     F_stat = F_stat,
     p_value = p_value
@@ -344,7 +350,7 @@ hotellings_with_imputed_datasets <- function(imputed_datasets, mu_not){
 
 mu2a_not <- c(1300, 120, 265, 7310, 820, 45, 65, 28)
 ## Shown in the appendix
-## hotellings_with_imputed_datasets(oliver2a_imputed, mu2a_not)
+results <- hotellings_with_imputed_datasets(oliver2a_imputed, mu2a_not)
 ```
 
 # Analysis for Region 4
@@ -355,7 +361,7 @@ $$
 
 using the same EM--multiple-imputation procedure described above. The resulting combined multivariate test yielded
 $$
-T^2 = 495.93, \quad F = 49.59, \quad p < 0.001.
+T^2 = 432.61, \quad F = 47.19, \quad p < 0.001.
 $$
 
 The test again provides overwhelming evidence that the Region~4 fatty-acid profile differs significantly from its historical mean vector. The pooled mean estimates
